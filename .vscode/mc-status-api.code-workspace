@@ -7,6 +7,11 @@
 	"settings": {
 		"files.associations": {
 			"wrangler.json": "jsonc"
-		}
+		},
+		"cSpell.words": [
+			"mcserver",
+			"Segoe",
+			"xitrus"
+		]
 	}
 }
