@@ -28,6 +28,59 @@ interface ServerStatus {
   icon: string;
 }
 
+function parseMinecraftText(text: string): string {
+  const colors: Record<string, string> = {
+    '0': '#000000', '1': '#0000AA', '2': '#00AA00', '3': '#00AAAA',
+    '4': '#AA0000', '5': '#AA00AA', '6': '#FFAA00', '7': '#AAAAAA',
+    '8': '#555555', '9': '#5555FF', 'a': '#55FF55', 'b': '#55FFFF',
+    'c': '#FF5555', 'd': '#FF55FF', 'e': '#FFFF55', 'f': '#FFFFFF'
+  };
+  const formats: Record<string, string> = {
+    'k': 'obfuscated', 'l': 'bold', 'm': 'strikethrough',
+    'n': 'underline', 'o': 'italic', 'r': 'reset'
+  };
+
+  let result = '';
+  let currentColor = '';
+  let currentFormats = new Set<string>();
+  const parts = text.split(/§([0-9a-fk-or])/i);
+
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) {
+      const code = parts[i].toLowerCase();
+      if (colors[code]) {
+        currentColor = colors[code];
+        currentFormats.clear();
+      } else if (formats[code] === 'reset') {
+        currentColor = '';
+        currentFormats.clear();
+      } else if (formats[code]) {
+        currentFormats.add(formats[code]);
+      }
+    } else {
+      if (parts[i]) {
+        let style = '';
+        if (currentColor) style += 'color:' + currentColor + ';';
+        if (currentFormats.has('bold')) style += 'font-weight:bold;';
+        if (currentFormats.has('underline')) style += 'text-decoration:underline;';
+        if (currentFormats.has('italic')) style += 'font-style:italic;';
+        if (currentFormats.has('strikethrough')) style += 'text-decoration:line-through;';
+        if (currentFormats.has('obfuscated')) style += 'background:currentColor;color:transparent;';
+
+        const escaped = parts[i].replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const withBreaks = escaped.replace(/\\n/g, '<br>').replace(/\n/g, '<br>');
+
+        if (style) {
+          result += '<span style="' + style + '">' + withBreaks + '</span>';
+        } else {
+          result += withBreaks;
+        }
+      }
+    }
+  }
+  return result;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -84,7 +137,7 @@ export default {
         });
       }
 
-      // DIからの通知（Discord転送 + KV更新）
+      // DIからの通知
       const status: ServerStatus = {
         online: true,
         players: [],
@@ -150,6 +203,23 @@ export default {
 
     // GET / - ステータスページ
     if (url.pathname === "/" && request.method === "GET") {
+      const statusData = await env.MC_STATUS.get("server_status");
+      const status: ServerStatus = statusData
+        ? JSON.parse(statusData)
+        : {
+            online: false,
+            players: [],
+            playerCount: 0,
+            maxPlayers: 40,
+            lastUpdated: new Date().toISOString(),
+            version: "1.21.1",
+            motd: "A Minecraft Server",
+            icon: "",
+          };
+
+      const motdHtml = parseMinecraftText(status.motd || "A Minecraft Server");
+      const iconSrc = status.icon ? `data:image/png;base64,${status.icon}` : '';
+
       const html = `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -201,9 +271,8 @@ export default {
     .motd {
       font-size: 1em;
       margin-bottom: 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     .server-meta {
       font-size: 0.8em;
@@ -286,20 +355,20 @@ export default {
 <body>
   <div class="container">
     <div class="server-card">
-      <div class="server-icon" id="server-icon"></div>
+      <div class="server-icon" id="server-icon">${iconSrc ? `<img src="${iconSrc}" alt="Server Icon">` : ''}</div>
       <div class="server-info">
-        <div class="motd" id="motd">A Minecraft Server</div>
+        <div class="motd" id="motd">${motdHtml}</div>
         <div class="server-meta">NeoForge 1.21.1</div>
         <div class="player-bar">
           <div class="player-bar-fill">
-            <div class="player-bar-inner" id="player-bar" style="width: 0%"></div>
+            <div class="player-bar-inner" id="player-bar" style="width: ${status.maxPlayers > 0 ? (status.playerCount / status.maxPlayers * 100) : 0}%"></div>
           </div>
-          <span class="player-count" id="players">0/40</span>
+          <span class="player-count" id="players">${status.playerCount}/${status.maxPlayers}</span>
         </div>
         <div class="status-line">
-          <span class="status-dot offline" id="status-dot"></span>
-          <span class="status-text" id="status-text">オフライン</span>
-          <span class="ping" id="last-updated"></span>
+          <span class="status-dot ${status.online ? 'online' : 'offline'}" id="status-dot"></span>
+          <span class="status-text" id="status-text">${status.online ? 'オンライン' : 'オフライン'}</span>
+          <span class="ping" id="last-updated">${new Date(status.lastUpdated).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</span>
         </div>
       </div>
     </div>
@@ -310,19 +379,66 @@ export default {
     <div class="footer"><span class="pulse">●</span> サーバー情報は5分間隔で更新・ページは1分ごとに自動更新</div>
   </div>
   <script>
+    function parseMinecraftText(text) {
+      var colors = {
+        '0': '#000000', '1': '#0000AA', '2': '#00AA00', '3': '#00AAAA',
+        '4': '#AA0000', '5': '#AA00AA', '6': '#FFAA00', '7': '#AAAAAA',
+        '8': '#555555', '9': '#5555FF', 'a': '#55FF55', 'b': '#55FFFF',
+        'c': '#FF5555', 'd': '#FF55FF', 'e': '#FFFF55', 'f': '#FFFFFF'
+      };
+      var formats = {
+        'k': 'obfuscated', 'l': 'bold', 'm': 'strikethrough',
+        'n': 'underline', 'o': 'italic', 'r': 'reset'
+      };
+      var result = '';
+      var currentColor = '';
+      var currentFormats = new Set();
+      var parts = text.split(/§([0-9a-fk-or])/i);
+      for (var i = 0; i < parts.length; i++) {
+        if (i % 2 === 1) {
+          var code = parts[i].toLowerCase();
+          if (colors[code]) {
+            currentColor = colors[code];
+            currentFormats.clear();
+          } else if (formats[code] === 'reset') {
+            currentColor = '';
+            currentFormats.clear();
+          } else if (formats[code]) {
+            currentFormats.add(formats[code]);
+          }
+        } else {
+          if (parts[i]) {
+            var style = '';
+            if (currentColor) style += 'color:' + currentColor + ';';
+            if (currentFormats.has('bold')) style += 'font-weight:bold;';
+            if (currentFormats.has('underline')) style += 'text-decoration:underline;';
+            if (currentFormats.has('italic')) style += 'font-style:italic;';
+            if (currentFormats.has('strikethrough')) style += 'text-decoration:line-through;';
+            if (currentFormats.has('obfuscated')) style += 'background:currentColor;color:transparent;';
+            var escaped = parts[i].replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            var withBreaks = escaped.replace(/\\\\n/g, '<br>').replace(/\\n/g, '<br>').replace(/\\n/g, '<br>');
+            if (style) {
+              result += '<span style="' + style + '">' + withBreaks + '</span>';
+            } else {
+              result += withBreaks;
+            }
+          }
+        }
+      }
+      return result;
+    }
+
     async function updateStatus() {
       try {
-        const res = await fetch('/status');
-        const data = await res.json();
-
-        const dot = document.getElementById('status-dot');
-        const text = document.getElementById('status-text');
-        const players = document.getElementById('players');
-        const bar = document.getElementById('player-bar');
-        const motd = document.getElementById('motd');
-        const icon = document.getElementById('server-icon');
-        const lastUpdated = document.getElementById('last-updated');
-
+        var res = await fetch('/status');
+        var data = await res.json();
+        var dot = document.getElementById('status-dot');
+        var text = document.getElementById('status-text');
+        var players = document.getElementById('players');
+        var bar = document.getElementById('player-bar');
+        var motd = document.getElementById('motd');
+        var icon = document.getElementById('server-icon');
+        var lastUpdated = document.getElementById('last-updated');
         if (data.online) {
           dot.className = 'status-dot online';
           text.textContent = 'オンライン';
@@ -330,12 +446,10 @@ export default {
           dot.className = 'status-dot offline';
           text.textContent = 'オフライン';
         }
-
         players.textContent = data.playerCount + '/' + data.maxPlayers;
         bar.style.width = (data.maxPlayers > 0 ? (data.playerCount / data.maxPlayers * 100) : 0) + '%';
-        motd.textContent = data.motd || 'A Minecraft Server';
+        motd.innerHTML = parseMinecraftText(data.motd || 'A Minecraft Server');
         lastUpdated.textContent = new Date(data.lastUpdated).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
-
         if (data.icon) {
           icon.innerHTML = '<img src="data:image/png;base64,' + data.icon + '" alt="Server Icon">';
         }
