@@ -13,6 +13,18 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
+	],
+	"kv_namespaces": [
+		{
+			"binding": "MC_STATUS",
+			"id": "142344823b9c4f2eb22e789f8f46b474"
+		}
+	],
+	"routes": [
+		{
+			"pattern": "mc-api.xitrus-jp.com",
+			"custom_domain": true
+		}
 	]
 	/**
 	 * Smart Placement
